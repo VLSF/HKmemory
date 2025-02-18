@@ -9,7 +9,7 @@ class linear_interaction(eqx.Module):
     weights: jnp.array
 
     def __init__(self, N_weights, key):
-        self.weights = random.normal(key, (N_weights,))
+        self.weights = random.normal(key, (N_weights,)) / jnp.sqrt(N_weights)
 
     def __call__(self, products):
         return self.weights
@@ -24,8 +24,8 @@ class relu_interaction(eqx.Module):
 
     def __init__(self, N_weights, key):
         keys = random.split(key)
-        self.A = random.normal(keys[0], (N_weights,))
-        self.B = random.normal(keys[1], (N_weights,))
+        self.A = random.normal(keys[0], (N_weights,)) / jnp.sqrt(N_weights)
+        self.B = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
 
     def __call__(self, products):
         return self.A + self.B*relu(products)
@@ -40,8 +40,8 @@ class sigmoid_interaction(eqx.Module):
 
     def __init__(self, N_weights, key):
         keys = random.split(key)
-        self.A = random.normal(keys[0], (N_weights,))
-        self.B = random.normal(keys[1], (N_weights,))
+        self.A = random.normal(keys[0], (N_weights,)) / jnp.sqrt(N_weights)
+        self.B = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
 
     def __call__(self, products):
         return self.A + self.B*sigmoid(products)
@@ -56,8 +56,8 @@ class tanh_interaction(eqx.Module):
 
     def __init__(self, N_weights, key):
         keys = random.split(key)
-        self.A = random.normal(keys[0], (N_weights,))
-        self.B = random.normal(keys[1], (N_weights,))
+        self.A = random.normal(keys[0], (N_weights,)) / jnp.sqrt(N_weights)
+        self.B = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
 
     def __call__(self, products):
         return self.A + self.B*jnp.tanh(products)
@@ -92,7 +92,7 @@ class deep_GELU_interaction_I(eqx.Module):
         NN_shapes[0] = NN_shapes[-1] = 1
         keys = random.split(key)
         self.MLP = MLP_GELU(NN_shapes, keys[0])
-        self.A = random.normal(keys[1], (N_weights,))
+        self.A = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
 
     def __call__(self, products):
         return vmap(grad(self.MLP))(jnp.expand_dims(products, 1))[:, 0]*self.A

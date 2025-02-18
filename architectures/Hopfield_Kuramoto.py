@@ -19,7 +19,7 @@ class Hopfield_Kuramoto_network(eqx.Module):
         self.LNet = Lagrange_net()
         self.weights_H = eps*random.normal(keys[1], (N_features, N_features)) / jnp.sqrt(N_features)
         self.bias_H = random.normal(keys[2], (N_features,)) / jnp.sqrt(N_features)
-        self.weights_HK = random.normal(key, (N_weights_i, 1))
+        self.weights_HK = random.normal(key, (N_weights_i, 1)) / jnp.sqrt(N_weights_i)
 
     def __call__(self, t, state, args):
         ind_K, ind_HK, kappa_K, kappa_H = args
