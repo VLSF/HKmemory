@@ -8,8 +8,8 @@ from jax.nn import relu, sigmoid, gelu
 class linear_interaction(eqx.Module):
     weights: jnp.array
 
-    def __init__(self, N_weights, key):
-        self.weights = random.normal(key, (N_weights,)) / jnp.sqrt(N_weights)
+    def __init__(self, N_weights, eps, key):
+        self.weights = eps*random.normal(key, (N_weights,))
 
     def __call__(self, products):
         return self.weights
@@ -22,10 +22,10 @@ class relu_interaction(eqx.Module):
     A: jnp.array
     B: jnp.array
 
-    def __init__(self, N_weights, key):
+    def __init__(self, N_weights, eps, key):
         keys = random.split(key)
-        self.A = random.normal(keys[0], (N_weights,)) / jnp.sqrt(N_weights)
-        self.B = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
+        self.A = eps*random.normal(keys[0], (N_weights,))
+        self.B = eps*random.normal(keys[1], (N_weights,))
 
     def __call__(self, products):
         return self.A + self.B*relu(products)
@@ -38,10 +38,10 @@ class sigmoid_interaction(eqx.Module):
     A: jnp.array
     B: jnp.array
 
-    def __init__(self, N_weights, key):
+    def __init__(self, N_weights, eps, key):
         keys = random.split(key)
-        self.A = random.normal(keys[0], (N_weights,)) / jnp.sqrt(N_weights)
-        self.B = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
+        self.A = eps*random.normal(keys[0], (N_weights,))
+        self.B = eps*random.normal(keys[1], (N_weights,))
 
     def __call__(self, products):
         return self.A + self.B*sigmoid(products)
@@ -54,10 +54,10 @@ class tanh_interaction(eqx.Module):
     A: jnp.array
     B: jnp.array
 
-    def __init__(self, N_weights, key):
+    def __init__(self, N_weights, eps, key):
         keys = random.split(key)
-        self.A = random.normal(keys[0], (N_weights,)) / jnp.sqrt(N_weights)
-        self.B = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
+        self.A = eps*random.normal(keys[0], (N_weights,))
+        self.B = eps*random.normal(keys[1], (N_weights,))
 
     def __call__(self, products):
         return self.A + self.B*jnp.tanh(products)
@@ -88,11 +88,11 @@ class deep_GELU_interaction_I(eqx.Module):
     A: jnp.array
     MLP: eqx.Module
 
-    def __init__(self, NN_shapes, N_weights, key):
+    def __init__(self, NN_shapes, N_weights, eps, key):
         NN_shapes[0] = NN_shapes[-1] = 1
         keys = random.split(key)
         self.MLP = MLP_GELU(NN_shapes, keys[0])
-        self.A = random.normal(keys[1], (N_weights,)) / jnp.sqrt(N_weights)
+        self.A = eps*random.normal(keys[1], (N_weights,))
 
     def __call__(self, products):
         return vmap(grad(self.MLP))(jnp.expand_dims(products, 1))[:, 0]*self.A
@@ -104,7 +104,7 @@ class deep_GELU_interaction_I(eqx.Module):
 class deep_GELU_interaction_II(eqx.Module):
     MLP: eqx.Module
 
-    def __init__(self, NN_shapes, N_weights, key):
+    def __init__(self, NN_shapes, N_weights, eps, key):
         NN_shapes[0] = NN_shapes[-1] = 1
         self.MLP = vmap(MLP_GELU, in_axes=(None, 0))(NN_shapes, random.split(key, N_weights))
 
@@ -123,12 +123,12 @@ def get_small_world_connectivity(key, N_neurons, k=4, p=0.1):
 class Kuramoto_global(eqx.Module):
     interaction: eqx.Module
 
-    def __init__(self, N_weights, interaction, key, NN_shapes=None):
+    def __init__(self, N_weights, interaction, eps, key, NN_shapes=None):
         keys = random.split(key)
         if NN_shapes is None:
-            self.interaction = interaction(N_weights, keys[0])
+            self.interaction = interaction(N_weights, eps, keys[0])
         else:
-            self.interaction = interaction(NN_shapes, N_weights, keys[0])
+            self.interaction = interaction(NN_shapes, N_weights, eps, keys[0])
 
     def __call__(self, t, state, ind):
         state = state / jnp.linalg.norm(state, axis=1, keepdims=True)
@@ -147,12 +147,12 @@ class Kuramoto_local(eqx.Module):
     interaction: eqx.Module
     omegas: jnp.array
 
-    def __init__(self, D, N_neurons, N_weights, interaction, key, NN_shapes=None):
+    def __init__(self, D, N_neurons, N_weights, interaction, eps, key, NN_shapes=None):
         keys = random.split(key)
         if NN_shapes is None:
-            self.interaction = interaction(N_weights, keys[0])
+            self.interaction = interaction(N_weights, eps, keys[0])
         else:
-            self.interaction = interaction(NN_shapes, N_weights, keys[0])
+            self.interaction = interaction(NN_shapes, N_weights, eps, keys[0])
         self.omegas = random.normal(keys[1], (N_neurons, D, D)) / jnp.sqrt(D)
 
     def __call__(self, t, state, ind):

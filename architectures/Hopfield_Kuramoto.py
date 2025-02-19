@@ -10,16 +10,16 @@ class Hopfield_Kuramoto_network(eqx.Module):
     bias_H: jnp.array
     weights_HK: jnp.array
 
-    def __init__(self, N_weights, interaction, N_features, N_weights_i, key, Lagrange_net, eps=1.0, NN_shapes=None):
+    def __init__(self, N_weights, interaction, N_features, N_weights_i, key, Lagrange_net, eps_K, eps_H, eps_HK, NN_shapes=None):
         keys = random.split(key, 4)
         if NN_shapes is None:
-            self.interaction_K = interaction(N_weights, keys[0])
+            self.interaction_K = interaction(N_weights, eps_K, keys[0])
         else:
-            self.interaction_K = interaction(NN_shapes, N_weights, keys[0])
+            self.interaction_K = interaction(NN_shapes, N_weights, eps_K, keys[0])
         self.LNet = Lagrange_net()
-        self.weights_H = eps*random.normal(keys[1], (N_features, N_features)) / jnp.sqrt(N_features)
-        self.bias_H = random.normal(keys[2], (N_features,)) / jnp.sqrt(N_features)
-        self.weights_HK = random.normal(key, (N_weights_i, 1)) / jnp.sqrt(N_weights_i)
+        self.weights_H = eps_H*random.normal(keys[1], (N_features, N_features))
+        self.bias_H = eps_H*random.normal(keys[2], (N_features,))
+        self.weights_HK = eps_HK*random.normal(key, (N_weights_i, 1))
 
     def __call__(self, t, state, args):
         ind_K, ind_HK, kappa_K, kappa_H = args
