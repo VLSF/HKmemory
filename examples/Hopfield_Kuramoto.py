@@ -35,7 +35,7 @@ if __name__ == "__main__":
         targets = np.fromfile(f, dtype=np.dtype(np.uint8).newbyteorder('>'))
         targets = jnp.array(targets.reshape((size,)))
     
-    with open('f'{path_to_MNIST}/raw/t10k-labels-idx1-ubyte','rb') as f:
+    with open(f'{path_to_MNIST}/raw/t10k-labels-idx1-ubyte','rb') as f:
         magic, size = struct.unpack(">II", f.read(8))
         targets_ = np.fromfile(f, dtype=np.dtype(np.uint8).newbyteorder('>'))
         targets_ = jnp.array(targets_.reshape((size,)))
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     N_classes = 10
     learning_rate = 1e-4
     gamma = 0.5
-    N_updates = 1000
+    N_updates = 2000
     N_train = 60000
     N_test = 10000
     N_drop = N_updates // 2
@@ -125,5 +125,4 @@ if __name__ == "__main__":
             train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
             test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
             print("train accuracy", jnp.mean(train_acc), "test accuracy", jnp.mean(test_acc))
-    losses = jnp.array(losses)
     print("total training time", sum(times))

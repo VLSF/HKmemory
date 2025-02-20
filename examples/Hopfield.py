@@ -36,7 +36,7 @@ if __name__ == "__main__":
         targets = np.fromfile(f, dtype=np.dtype(np.uint8).newbyteorder('>'))
         targets = jnp.array(targets.reshape((size,)))
     
-    with open('f'{path_to_MNIST}/raw/t10k-labels-idx1-ubyte','rb') as f:
+    with open(f'{path_to_MNIST}/raw/t10k-labels-idx1-ubyte','rb') as f:
         magic, size = struct.unpack(">II", f.read(8))
         targets_ = np.fromfile(f, dtype=np.dtype(np.uint8).newbyteorder('>'))
         targets_ = jnp.array(targets_.reshape((size,)))
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     keys = random.split(key, 3)
     key = keys[-1]
 
-    if model == "hierarchical":
+    if model_name == "hierarchical":
         print("using hierarchical model")
         learning_rate = 1e-3
         N_features = [features.shape[1], N_augment, N_augment, N_augment, N_classes]
