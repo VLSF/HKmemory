@@ -62,7 +62,7 @@ def get_standard_args():
 def Hopfield_dense(args):
     training_summary = {}
     write_logs_to = args["write_logs_to"]
-    if args["dataset_name"] == "MNIST":
+    if args["dataset_name"] == "MNIST" or args["dataset_name"] == "MNIST_addition":
         path_to_MNIST = args["path_to_MNIST"]
         features, targets = load_MNIST(path_to_MNIST)
         with open(write_logs_to, "a+") as f:
@@ -71,7 +71,10 @@ def Hopfield_dense(args):
     keys = random.split(random.PRNGKey(args["key"]), 3)
     key = keys[-1]
 
-    N_features = features.shape[1] + args["N_augment"] + args["N_classes"]
+    if args["dataset_name"] == "MNIST_addition":
+        N_features = 2*features.shape[1] + args["N_augment"] + args["N_classes"]
+    else:
+        N_features = features.shape[1] + args["N_augment"] + args["N_classes"]
     N_append = args["N_augment"]
     ind = None
     if args["activation"] == "relu":
@@ -93,18 +96,27 @@ def Hopfield_dense(args):
     elif args["optim"] == "adam":
         optim = optax.adam(learning_rate=sc)
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
-    
-    preprocessing = lambda feature, args_: classification.Hopfield_preprocessing(feature, N_append, args["N_classes"])
+
+    if args["dataset_name"] == "MNIST_addition":
+        preprocessing = lambda feature, args_: classification.a_Hopfield_preprocessing(feature, N_append, args["N_classes"])
+    else:
+        preprocessing = lambda feature, args_: classification.Hopfield_preprocessing(feature, N_append, args["N_classes"])
     postprocessing = lambda prediction: classification.Hopfield_postprocessing(prediction, args["N_classes"])
     solver_data = classification.get_default_solver_data()
     args_ = ind
 
-    inds = random.choice(keys[1], args["N_train"], (args["N_updates"], args["N_batch"]))
+    if args["dataset_name"] == "MNIST_addition":
+        inds = random.choice(keys[1], args["N_train"], (args["N_updates"], 2, args["N_batch"]))
+    else:
+        inds = random.choice(keys[1], args["N_train"], (args["N_updates"], args["N_batch"]))
     losses = []
     times = []
     for step, n in enumerate(inds):
         start = time.time()
-        loss, model, opt_state = classification.make_step(model, features[n], targets[n], args_, solver_data, preprocessing, postprocessing, None, opt_state, optim)
+        if args["dataset_name"] == "MNIST_addition":
+            loss, model, opt_state = classification.make_step(model, [features[n[0]], features[n[1]]], jnp.mod(targets[n[0]] + targets[n[1]], 10), args_, solver_data, preprocessing, postprocessing, None, opt_state, optim)
+        else:
+            loss, model, opt_state = classification.make_step(model, features[n], targets[n], args_, solver_data, preprocessing, postprocessing, None, opt_state, optim)
         end = time.time()
         times.append(end - start)
         losses.append(loss)
@@ -116,22 +128,36 @@ def Hopfield_dense(args):
             N_batch_predict = 100
             key, key1, key2 = random.split(key, 3)
             
-            inds_train_check = random.choice(key1, args["N_train"], (N_samples, N_batch_predict))
-            inds_test_check = random.choice(key2, features.shape[0] - args["N_train"], (N_samples, N_batch_predict)) + args["N_train"]
+            if args["dataset_name"] == "MNIST_addition":
+                inds_train_check = random.choice(key1, args["N_train"], (N_samples, 2, N_batch_predict))
+                inds_test_check = random.choice(key2, features.shape[0] - args["N_train"], (N_samples, 2, N_batch_predict)) + args["N_train"]
+            else:
+                inds_train_check = random.choice(key1, args["N_train"], (N_samples, N_batch_predict))
+                inds_test_check = random.choice(key2, features.shape[0] - args["N_train"], (N_samples, N_batch_predict)) + args["N_train"]
             
             predicted_train = []
             predicted_test = []
             
             for i, j in zip(inds_train_check, inds_test_check):
-                predicted = classification.predict_class(model, features[i], args_, solver_data, preprocessing, postprocessing, None)
-                predicted_train.append(predicted)
-                predicted = classification.predict_class(model, features[j], args_, solver_data, preprocessing, postprocessing, None)
-                predicted_test.append(predicted)
+                if args["dataset_name"] == "MNIST_addition":
+                    predicted = classification.predict_class(model, [features[i[0]], features[i[1]]], args_, solver_data, preprocessing, postprocessing, None)
+                    predicted_train.append(predicted)
+                    predicted = classification.predict_class(model, [features[j[0]], features[j[1]]], args_, solver_data, preprocessing, postprocessing, None)
+                    predicted_test.append(predicted)
+                else:
+                    predicted = classification.predict_class(model, features[i], args_, solver_data, preprocessing, postprocessing, None)
+                    predicted_train.append(predicted)
+                    predicted = classification.predict_class(model, features[j], args_, solver_data, preprocessing, postprocessing, None)
+                    predicted_test.append(predicted)
             
             predicted_train = jnp.concatenate(predicted_train)
             predicted_test = jnp.concatenate(predicted_test)
-            train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
-            test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
+            if args["dataset_name"] == "MNIST_addition":
+                train_acc = jnp.mod(targets[inds_train_check[:, 0].reshape(-1,)] + targets[inds_train_check[:, 1].reshape(-1,)], 10) == predicted_train
+                test_acc = jnp.mod(targets[inds_test_check[:, 0].reshape(-1,)] + targets[inds_test_check[:, 1].reshape(-1,)], 10) == predicted_test
+            else:
+                train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
+                test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
             
             with open(write_logs_to, "a+") as f:
                 f.write(f"train accuracy {jnp.mean(train_acc)}, test accuracy {jnp.mean(test_acc)}\n")
@@ -141,22 +167,44 @@ def Hopfield_dense(args):
         f.write(f"total training time {sum(times)}\n")
     training_summary["training_time"] = sum(times)
 
-    inds_train_check, inds_test_check = jnp.arange(args["N_train"]).reshape(-1, 100), args["N_train"] + jnp.arange(args["N_test"]).reshape(-1, 100)
-    predicted_train = []
-    predicted_test = []
-
-    for i in inds_train_check:
-        predicted = classification.predict_class(model, features[i], args_, solver_data, preprocessing, postprocessing, None)
-        predicted_train.append(predicted)
-
-    for j in inds_test_check:
-        predicted = classification.predict_class(model, features[j], args_, solver_data, preprocessing, postprocessing, None)
-        predicted_test.append(predicted)
+    if args["dataset_name"] == "MNIST_addition":
+        N_samples = 10
+        N_batch_predict = 100
+        key1, key2 = random.split(random.split(key)[0])
+        
+        inds_train_check = random.choice(key1, args["N_train"], (N_samples, 2, N_batch_predict))
+        inds_test_check = random.choice(key2, features.shape[0] - args["N_train"], (N_samples, 2, N_batch_predict)) + args["N_train"]
+        
+        predicted_train = []
+        predicted_test = []
+        
+        for i, j in zip(inds_train_check, inds_test_check):
+            predicted = classification.predict_class(model, [features[i[0]], features[i[1]]], args_, solver_data, preprocessing, postprocessing, None)
+            predicted_train.append(predicted)
+            predicted = classification.predict_class(model, [features[j[0]], features[j[1]]], args_, solver_data, preprocessing, postprocessing, None)
+            predicted_test.append(predicted)
+        
+        predicted_train = jnp.concatenate(predicted_train)
+        predicted_test = jnp.concatenate(predicted_test)
+        train_acc = jnp.mod(targets[inds_train_check[:, 0].reshape(-1,)] + targets[inds_train_check[:, 1].reshape(-1,)], 10) == predicted_train
+        test_acc = jnp.mod(targets[inds_test_check[:, 0].reshape(-1,)] + targets[inds_test_check[:, 1].reshape(-1,)], 10) == predicted_test
+    else:
+        inds_train_check, inds_test_check = jnp.arange(args["N_train"]).reshape(-1, 100), args["N_train"] + jnp.arange(args["N_test"]).reshape(-1, 100)
+        predicted_train = []
+        predicted_test = []
     
-    predicted_train = jnp.concatenate(predicted_train)
-    predicted_test = jnp.concatenate(predicted_test)
-    train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
-    test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
+        for i in inds_train_check:
+            predicted = classification.predict_class(model, features[i], args_, solver_data, preprocessing, postprocessing, None)
+            predicted_train.append(predicted)
+    
+        for j in inds_test_check:
+            predicted = classification.predict_class(model, features[j], args_, solver_data, preprocessing, postprocessing, None)
+            predicted_test.append(predicted)
+        
+        predicted_train = jnp.concatenate(predicted_train)
+        predicted_test = jnp.concatenate(predicted_test)
+        train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
+        test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
     with open(write_logs_to, "a+") as f:
         f.write(f"total train accuracy {jnp.mean(train_acc)}, total test accuracy {jnp.mean(test_acc)}\n")
     training_summary["train_accuracy"] = jnp.mean(train_acc).item()
@@ -167,7 +215,7 @@ def Hopfield_dense(args):
 def Kuramoto_small_world(args):
     training_summary = {}
     write_logs_to = args["write_logs_to"]
-    if args["dataset_name"] == "MNIST":
+    if args["dataset_name"] == "MNIST" or args["dataset_name"] == "MNIST_addition":
         path_to_MNIST = args["path_to_MNIST"]
         features, targets = load_MNIST(path_to_MNIST)
         with open(write_logs_to, "a+") as f:
@@ -179,7 +227,10 @@ def Kuramoto_small_world(args):
     
     features_ = classification.Kuramoto_data_init_random(features, args["D"], keys[-3])
     del features
-    N_neurons = features_.shape[1] + args["N_augment"] + args["N_classes"] + 1
+    if args["dataset_name"] == "MNIST_addition":
+        N_neurons = 2*features_.shape[1] + args["N_augment"] + args["N_classes"] + 1
+    else:
+        N_neurons = features_.shape[1] + args["N_augment"] + args["N_classes"] + 1
     ind = Kuramoto.get_small_world_connectivity(keys[0], N_neurons, k=args["k"])
     N_weights = ind.shape[0]
     if args["interaction"] == "relu":
@@ -201,19 +252,28 @@ def Kuramoto_small_world(args):
     elif args["optim"] == "adam":
         optim = optax.adam(learning_rate=sc)
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
-    
-    preprocessing = lambda feature, key: classification.Kuramoto_preprocessing_random_III(feature, args["N_augment"], args["N_classes"], key)
+
+    if args["dataset_name"] == "MNIST_addition":
+        preprocessing = lambda feature, key: classification.a_Kuramoto_preprocessing_random_III(feature, args["N_augment"], args["N_classes"], key)
+    else:
+        preprocessing = lambda feature, key: classification.Kuramoto_preprocessing_random_III(feature, args["N_augment"], args["N_classes"], key)
     postprocessing = lambda prediction: classification.Kuramoto_postprocessing(prediction, args["N_classes"])
     solver_data = classification.get_default_solver_data()
     args_ = ind
 
-    inds = random.choice(keys[1], args["N_train"], (args["N_updates"], args["N_batch"]))
+    if args["dataset_name"] == "MNIST_addition":
+        inds = random.choice(keys[1], args["N_train"], (args["N_updates"], 2, args["N_batch"]))
+    else:
+        inds = random.choice(keys[1], args["N_train"], (args["N_updates"], args["N_batch"]))
     losses = []
     times = []
     for step, n in enumerate(inds):
         key_, key1 = random.split(key_)
         start = time.time()
-        loss, model, opt_state = classification.make_step(model, features_[n], targets[n], args_, solver_data, preprocessing, postprocessing, key1, opt_state, optim)
+        if args["dataset_name"] == "MNIST_addition":
+            loss, model, opt_state = classification.make_step(model, [features_[n[0]], features_[n[1]]], jnp.mod(targets[n[0]] + targets[n[1]], 10), args_, solver_data, preprocessing, postprocessing, key1, opt_state, optim)
+        else:
+            loss, model, opt_state = classification.make_step(model, features_[n], targets[n], args_, solver_data, preprocessing, postprocessing, key1, opt_state, optim)
         end = time.time()
         times.append(end - start)
         losses.append(loss)
@@ -224,24 +284,38 @@ def Kuramoto_small_world(args):
             N_samples = 5
             N_batch_predict = 100
             key, key1, key2, key__ = random.split(key, 4)
-            
-            inds_train_check = random.choice(key1, args["N_train"], (N_samples, N_batch_predict))
-            inds_test_check = random.choice(key2, features_.shape[0] - args["N_train"], (N_samples, N_batch_predict)) + args["N_train"]
-            
+
             predicted_train = []
             predicted_test = []
-            
-            for i, j in zip(inds_train_check, inds_test_check):
-                key__, key1_, key2_ = random.split(key__, 3)
-                predicted = classification.predict_class(model, features_[i], args_, solver_data, preprocessing, postprocessing, key1_)
-                predicted_train.append(predicted)
-                predicted = classification.predict_class(model, features_[j], args_, solver_data, preprocessing, postprocessing, key2_)
-                predicted_test.append(predicted)
-            
-            predicted_train = jnp.concatenate(predicted_train)
-            predicted_test = jnp.concatenate(predicted_test)
-            train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
-            test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
+
+            if args["dataset_name"] == "MNIST_addition":
+                inds_train_check = random.choice(key1, args["N_train"], (N_samples, 2, N_batch_predict))
+                inds_test_check = random.choice(key2, features_.shape[0] - args["N_train"], (N_samples, 2, N_batch_predict)) + args["N_train"]
+                for i, j in zip(inds_train_check, inds_test_check):
+                    key__, key1_, key2_ = random.split(key__, 3)
+                    predicted = classification.predict_class(model, [features_[i[0]], features_[i[1]]], args_, solver_data, preprocessing, postprocessing, key1_)
+                    predicted_train.append(predicted)
+                    predicted = classification.predict_class(model, [features_[j[0]], features_[j[1]]], args_, solver_data, preprocessing, postprocessing, key2_)
+                    predicted_test.append(predicted)
+                
+                predicted_train = jnp.concatenate(predicted_train)
+                predicted_test = jnp.concatenate(predicted_test)
+                train_acc = jnp.mod(targets[inds_train_check[:, 0].reshape(-1,)] + targets[inds_train_check[:, 1].reshape(-1,)], 10) == predicted_train
+                test_acc = jnp.mod(targets[inds_test_check[:, 0].reshape(-1,)] + targets[inds_test_check[:, 1].reshape(-1,)], 10) == predicted_test
+            else:
+                inds_train_check = random.choice(key1, args["N_train"], (N_samples, N_batch_predict))
+                inds_test_check = random.choice(key2, features_.shape[0] - args["N_train"], (N_samples, N_batch_predict)) + args["N_train"]
+                for i, j in zip(inds_train_check, inds_test_check):
+                    key__, key1_, key2_ = random.split(key__, 3)
+                    predicted = classification.predict_class(model, features_[i], args_, solver_data, preprocessing, postprocessing, key1_)
+                    predicted_train.append(predicted)
+                    predicted = classification.predict_class(model, features_[j], args_, solver_data, preprocessing, postprocessing, key2_)
+                    predicted_test.append(predicted)
+                
+                predicted_train = jnp.concatenate(predicted_train)
+                predicted_test = jnp.concatenate(predicted_test)
+                train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
+                test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
             
             with open(write_logs_to, "a+") as f:
                 f.write(f"train accuracy {jnp.mean(train_acc)}, test accuracy {jnp.mean(test_acc)}\n")
@@ -251,24 +325,41 @@ def Kuramoto_small_world(args):
         f.write(f"total training time {sum(times)}\n")
     training_summary["training_time"] = sum(times)
 
-    inds_train_check, inds_test_check = jnp.arange(args["N_train"]).reshape(-1, 100), args["N_train"] + jnp.arange(args["N_test"]).reshape(-1, 100)
     predicted_train = []
     predicted_test = []
-
-    for i in inds_train_check:
-        key, key1 = random.split(key)
-        predicted = classification.predict_class(model, features_[i], args_, solver_data, preprocessing, postprocessing, key1)
-        predicted_train.append(predicted)
-
-    for j in inds_test_check:
-        key, key2 = random.split(key)
-        predicted = classification.predict_class(model, features_[j], args_, solver_data, preprocessing, postprocessing, key2)
-        predicted_test.append(predicted)
-    
-    predicted_train = jnp.concatenate(predicted_train)
-    predicted_test = jnp.concatenate(predicted_test)
-    train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
-    test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
+    if args["dataset_name"] == "MNIST_addition":
+        N_samples = 10
+        N_batch_predict = 100
+        key1, key2, key__ = random.split(random.split(key)[0], 3)
+        inds_train_check = random.choice(key1, args["N_train"], (N_samples, 2, N_batch_predict))
+        inds_test_check = random.choice(key2, features_.shape[0] - args["N_train"], (N_samples, 2, N_batch_predict)) + args["N_train"]
+        for i, j in zip(inds_train_check, inds_test_check):
+            key__, key1_, key2_ = random.split(key__, 3)
+            predicted = classification.predict_class(model, [features_[i[0]], features_[i[1]]], args_, solver_data, preprocessing, postprocessing, key1_)
+            predicted_train.append(predicted)
+            predicted = classification.predict_class(model, [features_[j[0]], features_[j[1]]], args_, solver_data, preprocessing, postprocessing, key2_)
+            predicted_test.append(predicted)
+        
+        predicted_train = jnp.concatenate(predicted_train)
+        predicted_test = jnp.concatenate(predicted_test)
+        train_acc = jnp.mod(targets[inds_train_check[:, 0].reshape(-1,)] + targets[inds_train_check[:, 1].reshape(-1,)], 10) == predicted_train
+        test_acc = jnp.mod(targets[inds_test_check[:, 0].reshape(-1,)] + targets[inds_test_check[:, 1].reshape(-1,)], 10) == predicted_test
+    else:
+        inds_train_check, inds_test_check = jnp.arange(args["N_train"]).reshape(-1, 100), args["N_train"] + jnp.arange(args["N_test"]).reshape(-1, 100)
+        for i in inds_train_check:
+            key, key1 = random.split(key)
+            predicted = classification.predict_class(model, features_[i], args_, solver_data, preprocessing, postprocessing, key1)
+            predicted_train.append(predicted)
+            
+        for j in inds_test_check:
+            key, key1 = random.split(key)
+            predicted = classification.predict_class(model, features_[j], args_, solver_data, preprocessing, postprocessing, key1)
+            predicted_test.append(predicted)
+        
+        predicted_train = jnp.concatenate(predicted_train)
+        predicted_test = jnp.concatenate(predicted_test)
+        train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
+        test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
     with open(write_logs_to, "a+") as f:
         f.write(f"total train accuracy {jnp.mean(train_acc)}, total test accuracy {jnp.mean(test_acc)}\n")
     training_summary["train_accuracy"] = jnp.mean(train_acc).item()
@@ -279,7 +370,7 @@ def Kuramoto_small_world(args):
 def Hopfield_Kuramoto_small_world(args):
     training_summary = {}
     write_logs_to = args["write_logs_to"]
-    if args["dataset_name"] == "MNIST":
+    if args["dataset_name"] == "MNIST" or args["dataset_name"] == "MNIST_addition":
         path_to_MNIST = args["path_to_MNIST"]
         features, targets = load_MNIST(path_to_MNIST)
         with open(write_logs_to, "a+") as f:
@@ -333,13 +424,19 @@ def Hopfield_Kuramoto_small_world(args):
     solver_data = classification.get_default_solver_data()
     args_ = [ind_K, ind_HK, args["kappa_K"], args["kappa_H"]]
 
-    inds = random.choice(keys[1], args["N_train"], (args["N_updates"], args["N_batch"]))
+    if args["dataset_name"] == "MNIST_addition":
+        inds = random.choice(keys[1], args["N_train"], (args["N_updates"], 2, args["N_batch"]))
+    else:
+        inds = random.choice(keys[1], args["N_train"], (args["N_updates"], args["N_batch"]))
     losses = []
     times = []
     for step, n in enumerate(inds):
         key_, key1 = random.split(key_)
         start = time.time()
-        loss, model, opt_state = classification.make_step(model, [features_H[n], features_K[n]], targets[n], args_, solver_data, preprocessing, postprocessing, key1, opt_state, optim)
+        if args["dataset_name"] == "MNIST_addition":
+            loss, model, opt_state = classification.make_step(model, [features_H[n[0]], features_K[n[1]]], jnp.mod(targets[n[0]] + targets[n[1]], 10), args_, solver_data, preprocessing, postprocessing, key1, opt_state, optim)
+        else:
+            loss, model, opt_state = classification.make_step(model, [features_H[n], features_K[n]], targets[n], args_, solver_data, preprocessing, postprocessing, key1, opt_state, optim)
         end = time.time()
         times.append(end - start)
         losses.append(loss)
@@ -350,24 +447,38 @@ def Hopfield_Kuramoto_small_world(args):
             N_samples = 5
             N_batch_predict = 100
             key, key1, key2, key__ = random.split(key, 4)
-            
-            inds_train_check = random.choice(key1, args["N_train"], (N_samples, N_batch_predict))
-            inds_test_check = random.choice(key2, features_H.shape[0] - args["N_train"], (N_samples, N_batch_predict)) + args["N_train"]
+
+            if args["dataset_name"] == "MNIST_addition":
+                inds_train_check = random.choice(key1, args["N_train"], (N_samples, 2, N_batch_predict))
+                inds_test_check = random.choice(key2, features_H.shape[0] - args["N_train"], (N_samples, 2, N_batch_predict)) + args["N_train"]
+            else:
+                inds_train_check = random.choice(key1, args["N_train"], (N_samples, N_batch_predict))
+                inds_test_check = random.choice(key2, features_H.shape[0] - args["N_train"], (N_samples, N_batch_predict)) + args["N_train"]
             
             predicted_train = []
             predicted_test = []
             
             for i, j in zip(inds_train_check, inds_test_check):
                 key__, key1_, key2_ = random.split(key__, 3)
-                predicted = classification.predict_class(model, [features_H[i], features_K[i]], args_, solver_data, preprocessing, postprocessing, key1_)
-                predicted_train.append(predicted)
-                predicted = classification.predict_class(model, [features_H[j], features_K[j]], args_, solver_data, preprocessing, postprocessing, key2_)
-                predicted_test.append(predicted)
+                if args["dataset_name"] == "MNIST_addition":
+                    predicted = classification.predict_class(model, [features_H[i[0]], features_K[i[1]]], args_, solver_data, preprocessing, postprocessing, key1_)
+                    predicted_train.append(predicted)
+                    predicted = classification.predict_class(model, [features_H[j[0]], features_K[j[1]]], args_, solver_data, preprocessing, postprocessing, key2_)
+                    predicted_test.append(predicted)
+                else:
+                    predicted = classification.predict_class(model, [features_H[i], features_K[i]], args_, solver_data, preprocessing, postprocessing, key1_)
+                    predicted_train.append(predicted)
+                    predicted = classification.predict_class(model, [features_H[j], features_K[j]], args_, solver_data, preprocessing, postprocessing, key2_)
+                    predicted_test.append(predicted)
             
             predicted_train = jnp.concatenate(predicted_train)
             predicted_test = jnp.concatenate(predicted_test)
-            train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
-            test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
+            if args["dataset_name"] == "MNIST_addition":
+                train_acc = jnp.mod(targets[inds_train_check[:, 0].reshape(-1,)] + targets[inds_train_check[:, 1].reshape(-1,)], 10) == predicted_train
+                test_acc = jnp.mod(targets[inds_test_check[:, 0].reshape(-1,)] + targets[inds_test_check[:, 1].reshape(-1,)], 10) == predicted_test
+            else:
+                train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
+                test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
             
             with open(write_logs_to, "a+") as f:
                 f.write(f"train accuracy {jnp.mean(train_acc)}, test accuracy {jnp.mean(test_acc)}\n")
@@ -377,24 +488,45 @@ def Hopfield_Kuramoto_small_world(args):
         f.write(f"total training time {sum(times)}\n")
     training_summary["training_time"] = sum(times)
 
-    inds_train_check, inds_test_check = jnp.arange(args["N_train"]).reshape(-1, 100), args["N_train"] + jnp.arange(args["N_test"]).reshape(-1, 100)
     predicted_train = []
     predicted_test = []
-
-    for i in inds_train_check:
-        key, key1 = random.split(key)
-        predicted = classification.predict_class(model, [features_H[i], features_K[i]], args_, solver_data, preprocessing, postprocessing, key1)
-        predicted_train.append(predicted)
-
-    for j in inds_test_check:
-        key, key2 = random.split(key)
-        predicted = classification.predict_class(model, [features_H[j], features_K[j]], args_, solver_data, preprocessing, postprocessing, key2)
-        predicted_test.append(predicted)
     
-    predicted_train = jnp.concatenate(predicted_train)
-    predicted_test = jnp.concatenate(predicted_test)
-    train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
-    test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
+    if args["dataset_name"] == "MNIST_addition":
+        N_samples = 10
+        N_batch_predict = 100
+        key1, key2, key__ = random.split(random.split(key)[0], 3)
+    
+        inds_train_check = random.choice(key1, args["N_train"], (N_samples, 2, N_batch_predict))
+        inds_test_check = random.choice(key2, features_H.shape[0] - args["N_train"], (N_samples, 2, N_batch_predict)) + args["N_train"]
+        
+        for i, j in zip(inds_train_check, inds_test_check):
+            key__, key1_, key2_ = random.split(key__, 3)
+            predicted = classification.predict_class(model, [features_H[i[0]], features_K[i[1]]], args_, solver_data, preprocessing, postprocessing, key1_)
+            predicted_train.append(predicted)
+            predicted = classification.predict_class(model, [features_H[j[0]], features_K[j[1]]], args_, solver_data, preprocessing, postprocessing, key2_)
+            predicted_test.append(predicted)
+        
+        predicted_train = jnp.concatenate(predicted_train)
+        predicted_test = jnp.concatenate(predicted_test)
+        train_acc = jnp.mod(targets[inds_train_check[:, 0].reshape(-1,)] + targets[inds_train_check[:, 1].reshape(-1,)], 10) == predicted_train
+        test_acc = jnp.mod(targets[inds_test_check[:, 0].reshape(-1,)] + targets[inds_test_check[:, 1].reshape(-1,)], 10) == predicted_test
+
+    else:
+        inds_train_check, inds_test_check = jnp.arange(args["N_train"]).reshape(-1, 100), args["N_train"] + jnp.arange(args["N_test"]).reshape(-1, 100)
+        for i in inds_train_check:
+            key, key1 = random.split(key)
+            predicted = classification.predict_class(model, [features_H[i], features_K[i]], args_, solver_data, preprocessing, postprocessing, key1)
+            predicted_train.append(predicted)
+    
+        for j in inds_test_check:
+            key, key2 = random.split(key)
+            predicted = classification.predict_class(model, [features_H[j], features_K[j]], args_, solver_data, preprocessing, postprocessing, key2)
+            predicted_test.append(predicted)
+        
+        predicted_train = jnp.concatenate(predicted_train)
+        predicted_test = jnp.concatenate(predicted_test)
+        train_acc = targets[inds_train_check.reshape(-1,)] == predicted_train
+        test_acc = targets[inds_test_check.reshape(-1,)] == predicted_test
     with open(write_logs_to, "a+") as f:
         f.write(f"total train accuracy {jnp.mean(train_acc)}, total test accuracy {jnp.mean(test_acc)}\n")
     training_summary["train_accuracy"] = jnp.mean(train_acc).item()
