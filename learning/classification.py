@@ -68,6 +68,46 @@ def Hopfield_Kuramoto_preprocessing_random(feature, N_augment, N_classes, key):
     ]
     return state
 
+def a_Hopfield_preprocessing(feature, N_augment, N_classes):
+    state = jnp.concatenate([
+        Hopfield_preprocessing(feature[0], 0, 0),
+        Hopfield_preprocessing(feature[1], N_augment, N_classes)
+    ])
+    return state
+
+def a_Kuramoto_preprocessing(feature, N_augment, N_classes):
+    state = jnp.concatenate([
+        Kuramoto_preprocessing(feature[0], 0, 0),
+        Kuramoto_preprocessing(feature[1], N_augment, N_classes)
+    ])
+    return state
+
+def a_Kuramoto_preprocessing_random_I(feature, N_augment, N_classes, key):
+    # works only if Kuramoto_data_init was used to prepare data
+    keys = random.split(key)
+    state = jnp.concatenate([
+        Kuramoto_preprocessing_random_I(feature[0], 0, 0, keys[0]),
+        Kuramoto_preprocessing_random_I(feature[1], N_augment, N_classes, keys[1])
+    ])
+    return state
+
+def a_Kuramoto_preprocessing_random_II(feature, N_augment, N_classes, key):
+    # works only if Kuramoto_data_init was used to prepare data
+    keys = random.split(key, 3)
+    state = jnp.concatenate([
+        Kuramoto_preprocessing_random_II(feature[0], 0, 0, keys[0]),
+        Kuramoto_preprocessing_random_II(feature[1], N_augment, N_classes, keys[1])
+    ])
+    omega = jnp.linalg.qr(random.normal(keys[1], (state.shape[1], state.shape[1])))[0]
+    state = state @ omega
+    return state
+
+def a_Kuramoto_preprocessing_random_III(feature, N_augment, N_classes, key):
+    state = a_Kuramoto_preprocessing(feature, N_augment, N_classes)
+    omega = jnp.linalg.qr(random.normal(key, (state.shape[1], state.shape[1])))[0]
+    state = state @ omega
+    return state
+
 def Hopfield_postprocessing(prediction, N_classes):
     prediction = prediction.ys[-1][-N_classes:]
     return prediction
