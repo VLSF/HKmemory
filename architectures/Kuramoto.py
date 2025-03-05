@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import equinox as eqx
 import networkx as nx
 
-from jax import random
+from jax import random, vmap, grad
 from jax.nn import relu, sigmoid, gelu
 
 class linear_interaction(eqx.Module):
@@ -71,6 +71,7 @@ class MLP_GELU(eqx.Module):
     biases: list
 
     def __init__(self, NN_shapes, key):
+        keys = random.split(key, len(NN_shapes))
         self.weights = [random.normal(key, (N_out, N_in))/jnp.sqrt(N_in/2 + N_out/2) for key, N_in, N_out in zip(keys, NN_shapes[:-1], NN_shapes[1:])]
         self.biases = [jnp.zeros((N_out, )) for key, N_in, N_out in zip(keys, NN_shapes[:-1], NN_shapes[1:])]
 
@@ -138,6 +139,31 @@ class Kuramoto_global(eqx.Module):
         state_ = state_.at[ind[:, 0]].add(dE_ds * state[ind[:, 1]])
         state_ = state_.at[ind[:, 1]].add(dE_ds * state[ind[:, 0]])
         state_ = -state_ + state * jnp.sum(state * state_, axis=1, keepdims=True)
+        return state_
+
+    def energy(self, state, ind):
+        return self.interaction.energy(state, ind)
+
+class Kuramoto_global_omega(eqx.Module):
+    interaction: eqx.Module
+    omega: jnp.array
+
+    def __init__(self, N_weights, interaction, eps, D, key, NN_shapes=None):
+        keys = random.split(key)
+        if NN_shapes is None:
+            self.interaction = interaction(N_weights, eps, keys[0])
+        else:
+            self.interaction = interaction(NN_shapes, N_weights, eps, keys[0])
+        self.omega = random.normal(keys[1], (D, D))
+
+    def __call__(self, t, state, ind):
+        state = state / jnp.linalg.norm(state, axis=1, keepdims=True)
+        s = jnp.sum(state[ind[:, 0]] * state[ind[:, 1]], axis=1)
+        dE_ds = jnp.expand_dims(self.interaction(s), 1)
+        state_ = jnp.zeros_like(state)
+        state_ = state_.at[ind[:, 0]].add(dE_ds * state[ind[:, 1]])
+        state_ = state_.at[ind[:, 1]].add(dE_ds * state[ind[:, 0]])
+        state_ = -state_ + state * jnp.sum(state * state_, axis=1, keepdims=True) + state @ (self.omega - self.omega.T)/2
         return state_
 
     def energy(self, state, ind):
