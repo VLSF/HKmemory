@@ -117,6 +117,11 @@ def Kuramoto_postprocessing(prediction, N_classes):
     prediction = jnp.sum(prediction[:1]*prediction[1:], axis=1)
     return prediction
 
+def Kuramoto_postprocessing_I(prediction, N_classes):
+    prediction = prediction.ys[-1][-2*N_classes:].reshape(2, N_classes, -1)
+    prediction = jnp.sum(prediction[0]*prediction[1], axis=1)
+    return prediction
+
 def Hopfield_Kuramoto_postprocessing(prediction, N_classes, Hopfield=True):
     if Hopfield:
         prediction = prediction.ys[0][-1][-N_classes:]
