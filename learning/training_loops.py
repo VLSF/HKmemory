@@ -189,7 +189,7 @@ def Hopfield_dense(args):
     
     return model, opt_state, losses, training_summary
 
-def Kuramoto_small_world(args):
+def Kuramoto_loop(args, omega=False, postprocessing_I=False):
     training_summary = {}
     write_logs_to = args["write_logs_to"]
     if args["dataset_name"] == "MNIST" or args["dataset_name"] == "MNIST_addition":
@@ -201,7 +201,7 @@ def Kuramoto_small_world(args):
     keys = random.split(random.PRNGKey(args["key"]), 5)
     key = keys[-1]
     key_ = keys[-2]
-    
+
     features_ = classification.Kuramoto_data_init_random(features, args["D"], keys[-3])
     del features
     if args["dataset_name"] == "MNIST_addition":
@@ -210,14 +210,23 @@ def Kuramoto_small_world(args):
         N_neurons = features_.shape[1] + args["N_augment"] + args["N_classes"] + 1
     ind = Kuramoto.get_small_world_connectivity(keys[0], N_neurons, k=args["k"])
     N_weights = ind.shape[0]
+    NN_shapes = None
     if args["interaction"] == "relu":
         interaction = Kuramoto.relu_interaction
     elif args["interaction"] == "tanh":
         interaction = Kuramoto.tanh_interaction
     elif args["interaction"] == "sigmoid":
         interaction = Kuramoto.sigmoid_interaction
-        
-    model = Kuramoto.Kuramoto_global(N_weights, interaction, 1/jnp.sqrt(args["k"]), keys[0])
+    elif args["interaction"] == "deep_GELU_global":
+        NN_shapes = [1, 10, 1]
+        interaction = Kuramoto.deep_GELU_interaction_I
+    elif args["interaction"] == "deep_GELU_local":
+        NN_shapes = [1, 10, 1]
+        interaction = Kuramoto.deep_GELU_interaction_II
+    if omega:
+        model = Kuramoto.Kuramoto_global_omega(N_weights, interaction, 1/jnp.sqrt(args["k"]), args["D"], keys[0], NN_shapes=NN_shapes)
+    else:
+        model = Kuramoto.Kuramoto_global(N_weights, interaction, 1/jnp.sqrt(args["k"]), keys[0], NN_shapes=NN_shapes)
     model_size = sum(tree_map(lambda x: 2*x.size if x.dtype == jnp.complex64 else x.size, tree_flatten(model)[0]))
     training_summary["model_size"] = model_size
     with open(write_logs_to, "a+") as f:
@@ -234,7 +243,11 @@ def Kuramoto_small_world(args):
         preprocessing = lambda feature, key: classification.a_Kuramoto_preprocessing_random_III(feature, args["N_augment"], args["N_classes"], key)
     else:
         preprocessing = lambda feature, key: classification.Kuramoto_preprocessing_random_III(feature, args["N_augment"], args["N_classes"], key)
-    postprocessing = lambda prediction: classification.Kuramoto_postprocessing(prediction, args["N_classes"])
+    
+    if postprocessing_I:
+        postprocessing = lambda prediction: classification.Kuramoto_postprocessing_I(prediction, args["N_classes"])
+    else:
+        postprocessing = lambda prediction: classification.Kuramoto_postprocessing(prediction, args["N_classes"])
     solver_data = classification.get_default_solver_data()
     args_ = ind
 
@@ -302,6 +315,15 @@ def Kuramoto_small_world(args):
     training_summary["test_accuracy"] = jnp.mean(test_acc).item()
     
     return model, opt_state, losses, training_summary
+
+def Kuramoto_small_world(args):
+    return Kuramoto_loop(args)
+
+def Kuramoto_omega(args):
+    return Kuramoto_loop(args, omega=True)
+
+def Kuramoto_omega_I(args):
+    return Kuramoto_loop(args, omega=True, postprocessing_I=True)
 
 def Hopfield_Kuramoto_small_world(args):
     training_summary = {}
