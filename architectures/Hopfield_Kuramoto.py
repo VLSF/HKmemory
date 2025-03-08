@@ -57,8 +57,9 @@ class Hopfield_Kuramoto_additive(eqx.Module):
     interaction_K: eqx.Module
     inp: jnp.array
     omega: jnp.array
+    alpha: jnp.array
     
-    def __init__(self, N_weights, interaction, N_features, D, key, eps_K, NN_shapes=None):
+    def __init__(self, N_weights, interaction, N_features, D, key, eps_K, eps_HK, NN_shapes=None):
         keys = random.split(key)
         if NN_shapes is None:
             self.interaction_K = interaction(N_weights, eps_K, keys[0])
@@ -67,6 +68,7 @@ class Hopfield_Kuramoto_additive(eqx.Module):
         self.inp = jnp.zeros((N_features, D))
         self.inp = self.inp.at[:, 0].set(1.0)
         self.omega = random.normal(keys[1], (D, D))
+        self.alpha = jnp.array([1.0,])*eps_HK
 
     def __call__(self, t, state, args):
         ind_K, ind_HK, kappa_K, kappa_H, Hopfield_model, args_Hopfield = args
@@ -75,8 +77,8 @@ class Hopfield_Kuramoto_additive(eqx.Module):
         Gram = jnp.sum(state_K[ind_HK[:, 0]] * state_K[ind_HK[:, 1]], axis=1)
         g = Hopfield_model.LNet.get_g(state_H)
         f_H = Hopfield_model(t, state_H, args_Hopfield)
-        f_H = f_H.at[ind_HK[:, 0]].add(Gram * g[ind_HK[:, 1]] / kappa_H)
-        f_H = f_H.at[ind_HK[:, 1]].add(Gram * g[ind_HK[:, 0]] / kappa_H)
+        f_H = f_H.at[ind_HK[:, 0]].add(self.alpha * Gram * g[ind_HK[:, 1]] / kappa_H)
+        f_H = f_H.at[ind_HK[:, 1]].add(self.alpha * Gram * g[ind_HK[:, 0]] / kappa_H)
     
         s = jnp.sum(state_K[ind_K[:, 0]] * state_K[ind_K[:, 1]], axis=1)
         dE_ds = jnp.expand_dims(self.interaction_K(s), 1)
@@ -84,8 +86,8 @@ class Hopfield_Kuramoto_additive(eqx.Module):
         f_K = f_K.at[ind_K[:, 0]].add(dE_ds * state_K[ind_K[:, 1]])
         f_K = f_K.at[ind_K[:, 1]].add(dE_ds * state_K[ind_K[:, 0]])
         G = jnp.expand_dims(g[ind_HK[:, 0]]*g[ind_HK[:, 1]], 1)
-        f_K = f_K.at[ind_HK[:, 0]].add(-G * state_K[ind_HK[:, 1]] / kappa_K)
-        f_K = f_K.at[ind_HK[:, 1]].add(-G * state_K[ind_HK[:, 0]] / kappa_K)
+        f_K = f_K.at[ind_HK[:, 0]].add(-self.alpha * G * state_K[ind_HK[:, 1]] / kappa_K)
+        f_K = f_K.at[ind_HK[:, 1]].add(-self.alpha * G * state_K[ind_HK[:, 0]] / kappa_K)
         f_K = -f_K + state_K * jnp.sum(state_K * f_K, axis=1, keepdims=True) + state_K @ (self.omega - self.omega.T)/2
         return [f_H, f_K]
 
@@ -96,14 +98,15 @@ class Hopfield_Kuramoto_additive(eqx.Module):
         E_K = self.interaction_K.energy(state_K, ind_K)
         g = Hopfield_model.LNet.get_g(state_H)
         E_HK = -jnp.sum(jnp.sum(state_K[ind_HK[:, 0]] * state_K[ind_HK[:, 1]], axis=1) * g[ind_HK[:, 0]] * g[ind_HK[:, 1]])
-        return E_K*kappa_K + E_H*kappa_H + E_HK
+        return E_K*kappa_K + E_H*kappa_H + self.alpha * E_HK
 
 class Hopfield_Kuramoto_multiplicative(eqx.Module):
     interaction_K: eqx.Module
     inp: jnp.array
     omega: jnp.array
+    alpha: jnp.array
     
-    def __init__(self, N_weights, interaction, N_features, D, key, eps_K, NN_shapes=None):
+    def __init__(self, N_weights, interaction, N_features, D, key, eps_K, eps_HK, NN_shapes=None):
         keys = random.split(key)
         if NN_shapes is None:
             self.interaction_K = interaction(N_weights, eps_K, keys[0])
@@ -112,6 +115,7 @@ class Hopfield_Kuramoto_multiplicative(eqx.Module):
         self.inp = jnp.zeros((N_features, D))
         self.inp = self.inp.at[:, 0].set(1.0)
         self.omega = random.normal(keys[1], (D, D))
+        self.alpha = jnp.array([1.0,])*eps_HK
 
     def __call__(self, t, state, args):
         ind_K, ind_HK, kappa_K, kappa_H, Hopfield_model, args_Hopfield = args
@@ -121,8 +125,8 @@ class Hopfield_Kuramoto_multiplicative(eqx.Module):
         g = Hopfield_model.LNet.get_g(state_H)
         f_H = Hopfield_model(t, state_H, args_Hopfield)
         W = (Hopfield_model.weights + Hopfield_model.weights.T)/2
-        f_H = f_H.at[ind_HK[:, 0]].add(Gram * W[ind_HK[:, 0], ind_HK[:, 1]] * g[ind_HK[:, 1]] / kappa_H)
-        f_H = f_H.at[ind_HK[:, 1]].add(Gram * W[ind_HK[:, 1], ind_HK[:, 0]] * g[ind_HK[:, 0]] / kappa_H)
+        f_H = f_H.at[ind_HK[:, 0]].add(self.alpha * Gram * W[ind_HK[:, 0], ind_HK[:, 1]] * g[ind_HK[:, 1]] / kappa_H)
+        f_H = f_H.at[ind_HK[:, 1]].add(self.alpha * Gram * W[ind_HK[:, 1], ind_HK[:, 0]] * g[ind_HK[:, 0]] / kappa_H)
         
         s = jnp.sum(state_K[ind_K[:, 0]] * state_K[ind_K[:, 1]], axis=1)
         dE_ds = jnp.expand_dims(self.interaction_K(s), 1)
@@ -130,8 +134,8 @@ class Hopfield_Kuramoto_multiplicative(eqx.Module):
         f_K = f_K.at[ind_K[:, 0]].add(dE_ds * state_K[ind_K[:, 1]])
         f_K = f_K.at[ind_K[:, 1]].add(dE_ds * state_K[ind_K[:, 0]])
         G = jnp.expand_dims(g[ind_HK[:, 0]]*g[ind_HK[:, 1]], 1)
-        f_K = f_K.at[ind_HK[:, 0]].add(-G * jnp.expand_dims(W[ind_HK[:, 0], ind_HK[:, 1]], 1) * state_K[ind_HK[:, 1]] / kappa_K)
-        f_K = f_K.at[ind_HK[:, 1]].add(-G * jnp.expand_dims(W[ind_HK[:, 0], ind_HK[:, 1]], 1) * state_K[ind_HK[:, 0]] / kappa_K)
+        f_K = f_K.at[ind_HK[:, 0]].add(-self.alpha * G * jnp.expand_dims(W[ind_HK[:, 0], ind_HK[:, 1]], 1) * state_K[ind_HK[:, 1]] / kappa_K)
+        f_K = f_K.at[ind_HK[:, 1]].add(-self.alpha * G * jnp.expand_dims(W[ind_HK[:, 0], ind_HK[:, 1]], 1) * state_K[ind_HK[:, 0]] / kappa_K)
         f_K = -f_K + state_K * jnp.sum(state_K * f_K, axis=1, keepdims=True) + state_K @ (self.omega - self.omega.T)/2
         return [f_H, f_K]
 
@@ -143,4 +147,4 @@ class Hopfield_Kuramoto_multiplicative(eqx.Module):
         g = Hopfield_model.LNet.get_g(state_H)
         W = (Hopfield_model.weights + Hopfield_model.weights.T)/2
         E_HK = -jnp.sum(jnp.sum(state_K[ind_HK[:, 0]] * state_K[ind_HK[:, 1]], axis=1) * g[ind_HK[:, 0]] * g[ind_HK[:, 1]] * W[ind_HK[:, 0], ind_HK[:, 1]])
-        return E_K*kappa_K + E_H*kappa_H + E_HK
+        return E_K*kappa_K + E_H*kappa_H + self.alpha*E_HK
