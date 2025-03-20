@@ -61,6 +61,13 @@ def Hopfield_Kuramoto_preprocessing(feature, N_augment, N_classes):
     ]
     return state
 
+def associative_Hopfield_Kuramoto_preprocessing(feature, N_augment, N_classes):
+    state = [
+        Hopfield_preprocessing(feature[0], N_augment, N_classes),
+        Kuramoto_preprocessing(feature[1], N_augment, N_classes - 1)
+    ]
+    return state
+
 def Hopfield_Kuramoto_preprocessing_random(feature, N_augment, N_classes, key):
     state = [
         Hopfield_preprocessing(feature[0], N_augment, N_classes + 1),
